@@ -119,7 +119,6 @@ void encode(char* buff, int buff_size)
 		{
 			if(buff[i] == it->second || buff[i] == (it->second + 32))
             {
-                //printf("buff = %c\t it = %c\n", buff[i], it->second);
                 buff[i] = it->first;
             }
 
@@ -135,7 +134,6 @@ void decode(char* buff, int buff_size)
 		{
 			if(buff[i] == it->first)
             {
-                //printf("buff = %c\t it = %c\n", buff[i], it->second);
                 buff[i] = it->second;
             }
 
@@ -181,7 +179,7 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 	 sockaddr_in ipv4_server_Address;
 
 	// Buffer we will use to send and receive clients' messages
-    char dataBuffer[BUFFER_SIZE];
+    char dataBuffer[BUFFER_SIZE + 1];
 
 	// WSADATA data structure that is to receive details of the Windows Sockets implementation
     WSADATA wsaData;
@@ -261,7 +259,7 @@ DWORD WINAPI thread_function(LPVOID lp_param)
     do
     {
 		// Set whole buffer to zero
-        memset(dataBuffer, 0, BUFFER_SIZE);
+		memset(dataBuffer, 0, sizeof(dataBuffer));
 		// Receive client message
         ipv6_Result = recv(ipv6_client_socket, dataBuffer, BUFFER_SIZE, 0);
 		
@@ -271,7 +269,8 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 			printf("recvfrom failed with error: %d\n", WSAGetLastError());
 			break;
 		}
-
+		if(dataBuffer[0] != 0)
+			printf("Pre dekodovanja:%s\n", dataBuffer);
 		decode(dataBuffer, BUFFER_SIZE); //decryption
 		DWORD wait_result;
 
@@ -286,9 +285,7 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 				__try {
 					if(dataBuffer[0] != 0)
 					{
-						//printf("\n------------------\nOFFSET:%d\nDATA_BUFFER:%s\n---------------------\n", data_array->offset_bytes, dataBuffer);
 						fseek(file, data_array->offset_bytes, SEEK_SET);//moving to correct location
-						//printf("\n\nDATA_BUFFER:%s\n\n", dataBuffer);
 						if (fwrite(dataBuffer, sizeof(char), BUFFER_SIZE, file) != BUFFER_SIZE)
 						{
 							printf("Error writing in file\n");

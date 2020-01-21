@@ -7,8 +7,16 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <map>
 #include "conio.h"
+#include <map>
+#include <tchar.h>
+#include<strsafe.h>
+
+typedef struct thread_params
+{
+	int offset_bytes, send_length, id;
+	int* ports;
+}thread_params;
 
 #pragma comment (lib, "Ws2_32.lib")
 #pragma comment (lib, "Mswsock.lib")
@@ -17,8 +25,88 @@
 #define SERVER_IP_ADDRESS "127.0.0.1"		// IPv4 address of server
 #define SERVER_PORT 27015					// Port number of server that will be used for communication with clients
 #define BUFFER_SIZE 512						// Size of buffer that will be used for sending and receiving messages to client
+#define MAX_THREADS 5
 
+void encode(char* buff, int buff_size);
+void decode(char* buff, int buff_size);
+void fill_map();
 std::map<int, char> encode_map;
+DWORD WINAPI thread_function(LPVOID lp_param);
+HANDLE mutex_handle;
+FILE *file;
+int ports[MAX_THREADS] = {27015, 27016, 27017, 27018, 27019};
+
+int _tmain()
+{
+	fill_map();
+	mutex_handle = CreateMutex( 
+        NULL,              // default security attributes
+        FALSE,             // initially not owned
+        NULL);             // unnamed mutex
+
+
+	if ( (file = fopen("LoremIpsum.txt", "r")) == NULL)
+	{
+		printf("Error opening file\n");
+		return 1;
+	}
+	//start thread
+	thread_params* data_array[MAX_THREADS];
+	DWORD dw_thread_id[MAX_THREADS]; //dword = unsigned 32bit int
+	HANDLE h_thread_array[MAX_THREADS];
+
+	for (int i = 0; i < MAX_THREADS; i++)
+	{
+		data_array[i] = (thread_params*) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(thread_params));
+		if (data_array[i] == NULL)
+			return 1;
+		data_array[i]->offset_bytes = i * BUFFER_SIZE;
+		data_array[i]->send_length = BUFFER_SIZE;
+		data_array[i]->id = i;
+		data_array[i]->ports = ports;
+		h_thread_array[i] = CreateThread( 
+            NULL,                   // default security attributes
+            0,                      // use default stack size  
+            thread_function,       // thread function name
+            data_array[i],          // argument to thread function 
+            0,                      // use default creation flags 
+            &dw_thread_id[i]);   // returns the thread identifier 
+
+		if (h_thread_array[i] == NULL) //create thread fail check
+			return 1;
+	}
+
+	//wait for all threads to be done
+	WaitForMultipleObjects(MAX_THREADS, h_thread_array, TRUE, INFINITE);
+
+	//close all thread handles and free memory
+	for(int i=0; i<MAX_THREADS; i++)
+	{
+		CloseHandle(h_thread_array[i]);
+		if(data_array[i] != NULL)
+		{
+			HeapFree(GetProcessHeap(), 0, data_array[i]);
+			data_array[i] = NULL;    // Ensure address is not reused.
+		}
+	}
+	CloseHandle(mutex_handle);
+
+	//close file
+	if (fclose(file) == EOF)
+	{
+		printf("Error closing file\n");
+		return 1;
+	}
+
+	// Close Winsock library
+    WSACleanup();
+
+	// Client has succesfully sent a message
+    return 0;
+	//kraj main
+
+}
+
 
 void encode(char* buff, int buff_size)
 {
@@ -83,17 +171,19 @@ void fill_map()
 	encode_map[50] = 'Z';
 	encode_map[42] = ' ';
 }
-int main()
+
+DWORD WINAPI thread_function(LPVOID lp_param)
 {
-	fill_map();
-    // Server address structure
+	thread_params* data_array = (thread_params*) lp_param; //getting thread params
+	int send_times, i; //variables for sending
+	send_times = data_array->send_length/BUFFER_SIZE + (((data_array->send_length % BUFFER_SIZE) != 0) ? 1 : 0); //number of times client sends message
+	// Server address structure
     sockaddr_in serverAddress;
-	int offset_bytes, send_length, send_times, i = 0; //variables for choosing file segment to send
     // Size of server address structure
 	int sockAddrLen = sizeof(serverAddress);
 
 	// Buffer that will be used for sending and receiving messages to client
-    char dataBuffer[BUFFER_SIZE];
+    char dataBuffer[BUFFER_SIZE + 1];
 
 	// WSADATA data structure that is used to receive details of the Windows Sockets implementation
     WSADATA wsaData;
@@ -114,7 +204,7 @@ int main()
 	 // Initialize address structure of server
 	serverAddress.sin_family = AF_INET;								// IPv4 address famly
     serverAddress.sin_addr.s_addr = inet_addr(SERVER_IP_ADDRESS);	// Set server IP address using string
-    serverAddress.sin_port = htons(SERVER_PORT);					// Set server port
+    serverAddress.sin_port = htons(data_array->ports[data_array->id]);					// Set server port
 
 	// Create a socket
     SOCKET clientSocket = socket(AF_INET,      // IPv4 address famly
@@ -136,23 +226,40 @@ int main()
 		WSACleanup();
 		return 1;
 	}
-	FILE *file;
-	if ( (file = fopen("LoremIpsum.txt", "r")) == NULL)
-	{
-		printf("Error opening file\n");
-		return 1;
-	}
-	printf("Input offset in bytes:\t");
-	scanf("%d", &offset_bytes);
-	printf("Input sending duration(length):\t");
-	scanf("%d", &send_length);
-	send_times = send_length/BUFFER_SIZE + (((send_length % BUFFER_SIZE) != 0) ? 1 : 0); //number of times client sends message
-	fseek(file, offset_bytes, SEEK_SET);
+	
+	i = 0;
+	DWORD wait_result;
 	while(i < send_times)
-    {	
-		if (fgets(dataBuffer, BUFFER_SIZE, file) == NULL) //in case of EOF or error break
-			break;
-		printf("Pre enkodovanja:%s\n", dataBuffer);
+    {
+		wait_result = WaitForSingleObject( 
+            mutex_handle,    // handle to mutex
+            INFINITE);  // no time-out interval
+
+			switch (wait_result)
+			{
+			case WAIT_OBJECT_0://thread got ownership of the mutex
+				__try 
+				{
+					fseek(file, data_array->offset_bytes, SEEK_SET);
+					memset(dataBuffer, 0, sizeof(dataBuffer));
+					if (fread(dataBuffer, 1, BUFFER_SIZE, file) == 0) //in case of EOF or error break
+						return 1;
+					printf("\n-------------------\nDATA_BUFFER:%s\n-------------------\n", dataBuffer);
+				}
+
+				__finally 
+				{
+					if (!ReleaseMutex(mutex_handle))
+					{
+						printf("Mutex was not released\n");
+						return 1;
+					}
+				}
+				break;
+			case WAIT_ABANDONED://timeout
+				printf("WAIT_ABANDONED\n");
+				return 1;
+			}
 		encode(dataBuffer, BUFFER_SIZE); //encryption
 		printf("Posle enkodovanja:%s\n", dataBuffer);
 		// Send message to server
@@ -169,12 +276,6 @@ int main()
 		i++;
 	}
 
-	if (fclose(file) == EOF)
-	{
-		printf("Error closing file\n");
-		return 1;
-	}
-
 	// Close client application
     iResult = closesocket(clientSocket);
     if (iResult == SOCKET_ERROR)
@@ -184,9 +285,4 @@ int main()
         return 1;
     }
 
-	// Close Winsock library
-    WSACleanup();
-
-	// Client has succesfully sent a message
-    return 0;
 }

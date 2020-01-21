@@ -8,25 +8,28 @@
 #pragma comment (lib, "AdvApi32.lib")
 
 #include "includes.h"
+
 //defines
 #define SERVER_IP_ADDRESS "0:0:0:0:0:0:0:1"	// IPv6 address of server in localhost
 #define SERVER_PORT 27015					// Port number of server that will be used for communication with clients
 #define BUFFER_SIZE 512						// Size of buffer that will be used for sending and receiving messages to client
 #define MAX_THREADS 5
-#define PORTS 5
 //------------------------------
 
 //global variables
 std::map<int, char> encode_map;
 FILE *file;
-int ports[PORTS] = {27015, 27016, 27017, 27018, 27019};
+int ports[MAX_THREADS] = {27015, 27016, 27017, 27018, 27019};
+HANDLE mutex_handle;
 //------------------------------
 
+//function declarations
 void encode(char* buff, int buff_size);
 void decode(char* buff, int buff_size);
 void fill_map();
 DWORD WINAPI thread_function(LPVOID lp_param);
-HANDLE mutex_handle;
+//------------------------------
+
 int _tmain()
 {
 	fill_map(); //encoding map
@@ -106,7 +109,6 @@ void encode(char* buff, int buff_size)
 		{
 			if(buff[i] == it->second || buff[i] == (it->second + 32))
             {
-                //printf("buff = %c\t it = %c\n", buff[i], it->second);
                 buff[i] = it->first;
             }
 
@@ -122,7 +124,6 @@ void decode(char* buff, int buff_size)
 		{
 			if(buff[i] == it->first)
             {
-                //printf("buff = %c\t it = %c\n", buff[i], it->second);
                 buff[i] = it->second;
             }
 
@@ -166,8 +167,6 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 	thread_params* data_array = (thread_params*) lp_param; //getting thread params
 	int send_times, i; //variables for sending
 	send_times = data_array->send_length/BUFFER_SIZE + (((data_array->send_length % BUFFER_SIZE) != 0) ? 1 : 0); //number of times client sends message
-	fseek(file, data_array->offset_bytes, SEEK_SET);//offset from beginning of file
-	//printf("offset:%d\tlength:%d\n", data_array->offset_bytes, data_array->send_length);
 
 	// Server address structure
     sockaddr_in6 serverAddress;
@@ -176,7 +175,7 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 	int sockAddrLen = sizeof(serverAddress);
 
 	// Buffer that will be used for sending and receiving messages to client
-    char dataBuffer[BUFFER_SIZE];
+    char dataBuffer[BUFFER_SIZE + 1];
 
 	// WSADATA data structure that is used to receive details of the Windows Sockets implementation
     WSADATA wsaData;
@@ -223,11 +222,9 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 	}
 
 	i = 0;
+	DWORD wait_result;
 	while (i < send_times)
-	{
-		DWORD wait_result;
-
-		
+	{		
 			wait_result = WaitForSingleObject( 
             mutex_handle,    // handle to mutex
             INFINITE);  // no time-out interval
@@ -238,9 +235,10 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 				__try 
 				{
 					fseek(file, data_array->offset_bytes, SEEK_SET);
-					if (fread(dataBuffer, sizeof(char), BUFFER_SIZE, file) == 0) //in case of EOF or error break
+					memset(dataBuffer, 0, sizeof(dataBuffer));
+					if (fread(dataBuffer, 1, BUFFER_SIZE, file) == 0) //in case of EOF or error break
 						return 1;
-					printf("\n-------------------\nOFFSET:%d\nDATA_BUFFER:%s\n-------------------\n", data_array->offset_bytes, dataBuffer);
+					printf("\n-------------------\nDATA_BUFFER:%s\n-------------------\n", dataBuffer);
 				}
 
 				__finally 
@@ -257,7 +255,7 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 				return 1;
 			}
 		encode(dataBuffer, BUFFER_SIZE); //encryption
-		//printf("Posle enkodovanja:%s\n", dataBuffer);
+		printf("Posle enkodovanja:%s\n", dataBuffer);
 		iResult = send(clientSocket, dataBuffer, BUFFER_SIZE, 0);
 
 		// Check if message is succesfully sent. If not, close client application
