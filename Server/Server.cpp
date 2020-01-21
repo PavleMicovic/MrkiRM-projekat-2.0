@@ -273,11 +273,17 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 		}
 
 		decode(dataBuffer, BUFFER_SIZE); //decryption
-		printf("offset_bytes:%d\n", data_array->offset_bytes);
-
+		printf("\n-----\nposle dekodovanja:%s\n-----\n", dataBuffer);
+		//printf("offset_bytes:%d\n", data_array->offset_bytes);
+		fseek(file, data_array->offset_bytes, SEEK_SET);
+		if (fwrite(dataBuffer, sizeof(char), BUFFER_SIZE, file) != BUFFER_SIZE)
+					{
+						printf("Error writing in file\n");
+						return 1;
+					}
 		DWORD count = 0, wait_result;
 
-		while (count < 20)
+	/*	while (count < 20)
 		{
 			wait_result = WaitForSingleObject( 
             mutex_handle,    // handle to mutex
@@ -288,6 +294,7 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 			case WAIT_OBJECT_0://thread got ownership of the mutex
 				__try {
 					fseek(file, data_array->offset_bytes, SEEK_SET);//moving to correct location
+					//printf("\n\nDATA_BUFFER:%s\n\n", dataBuffer);
 					if (fwrite(dataBuffer, sizeof(char), BUFFER_SIZE, file) != BUFFER_SIZE)
 					{
 						printf("Error writing in file\n");
@@ -302,13 +309,14 @@ DWORD WINAPI thread_function(LPVOID lp_param)
 						printf("Mutex was not released\n");
 						return 1;
 					}
+					//Sleep(100);
 				}
 				break;
 			case WAIT_ABANDONED://timeout
 				printf("WAIT_ABANDONED\n");
 				return 1;
 			}
-		}
+		}*/
         char ipAddress[INET6_ADDRSTRLEN]; // INET6_ADDRSTRLEN 65 spaces for hexadecimal notation of IPv6
 		
 		// Copy client ip to local char[]

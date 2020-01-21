@@ -39,7 +39,7 @@ int _tmain()
 	//start thread
 	thread_params* data_array[MAX_THREADS];
 	DWORD dw_thread_id[MAX_THREADS]; //dword = unsigned 32bit int
-	HANDLE h_thread_array[MAX_THREADS]; //wtf je handle
+	HANDLE h_thread_array[MAX_THREADS];
 
 	for (int i = 0; i < MAX_THREADS; i++)
 	{
@@ -47,7 +47,7 @@ int _tmain()
 		if (data_array[i] == NULL)
 			return 1;
 		data_array[i]->offset_bytes = i * BUFFER_SIZE;
-		data_array[i]->send_length = 2 * BUFFER_SIZE;
+		data_array[i]->send_length = BUFFER_SIZE;
 		data_array[i]->id = i;
 		data_array[i]->ports = ports;
 		h_thread_array[i] = CreateThread( 
@@ -219,6 +219,7 @@ DWORD WINAPI thread_function(LPVOID lp_param) //LPVOID = void* //thread function
 	i = 0;
 	while (i < send_times)
 	{
+		fseek(file, data_array->offset_bytes, SEEK_SET);
 		if (fgets(dataBuffer, BUFFER_SIZE, file) == NULL) //in case of EOF or error break
 			break;
 		//printf("Pre enkodovanja:%s\n", dataBuffer);
